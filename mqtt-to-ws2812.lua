@@ -1,10 +1,12 @@
 -- connect to mqtt and control LED strip on GPIO2 (pin D4)
 -- exposes endpoints to control Tower and Shelves LEDS
-m = mqtt.Client("nodemcu", 120, "username", "password")
--- connect to mqtt broker and listen to "on/off" messages
--- sent to topic "hue/node1"
 
 s = require("settings")
+fugileds = require("fugileds")
+
+m = mqtt.Client(s.mqtt_id, 120, s.mqtt_user, s.mqtt_pass)
+-- connect to mqtt broker and listen to "on/off" messages
+-- sent to topic "hue/node1"
 
 -- init onboard blue LED, set to off
 led = 0
@@ -31,7 +33,7 @@ function mqtt_do()
     if ready == 1 then
         mqtt_on()
         --tmr.stop(0)
-        m:connect("test.mosquitto.org", 1883, 0, function(conn)
+        m:connect(s.mqtt_host, s.mqtt_port, 0, function(conn)
             print("connected")
             connected = 1;
             mqtt_pubsub()
@@ -41,17 +43,17 @@ end
 
 -- subscribe to topics and send a hello message
 function mqtt_pubsub()
-    m:subscribe("hue/#", 0, function(conn)
+    m:subscribe(s.mqtt_topic .. "/#", 0, function(conn)
         print("subscribed")
     end)
 
-    m:publish("hue/nodemcu", "hello from nodemcu", 0, 0, function(conn)
+    m:publish(s.mqtt_topic .. "/nodemcu", "hello from nodemcu", 0, 0, function(conn)
         print("sent")
     end)
 end
 
 function mqtt_on() -- react to messages
-    m:lwt("hue/nodemcu", "leaving", 0, 0)
+    m:lwt(s.mqtt_topic .. "/nodemcu", "leaving", 0, 0)
     m:on("connect", function(con)
         print("connected")
         end)
@@ -66,7 +68,7 @@ function mqtt_on() -- react to messages
         if data ~= nil then
             print(data)
         end
-        if topic == "hue/node1" then
+        if topic == s.mqtt_topic .. "/node1" then
             if data == "on" then
                 gpio.write(led, gpio.LOW)
             end
@@ -74,18 +76,23 @@ function mqtt_on() -- react to messages
                 gpio.write(led, gpio.HIGH)
             end
         end
-        if topic == "hue/color" then
-        	red, green, blue = data:match("#(..)(..)(..)")
-			if blue ~= nil then
-			  -- center tower strip : 28 leds.
-			  red = tonumber(red, 16)
-			  green = tonumber(green, 16)
-			  blue = tonumber(blue, 16)
-			  ws2812.writergb(4, string.char(red, green, blue):rep(28))
-			else
-			  print("nothing")
-			end
-        end
+        -- TODO : refactor the following block to use one regexp
+        if topic == s.mqtt_topic .. "/color" then
+        	fugileds.process_data('color', data)
+        elseif topic == s.mqtt_topic .. "/color/tower" then
+          fugileds.process_data('tower', data)
+        elseif topic == s.mqtt_topic .. "/color/rshelf" then
+          fugileds.process_data('rshelf', data)
+        elseif topic == s.mqtt_topic .. "/color/rear" then
+          fugileds.process_data('rear', data)
+        elseif topic == s.mqtt_topic .. "/color/lshelf" then
+          fugileds.process_data('lshelf', data)
+        elseif topic == s.mqtt_topic .. "/state" then
+          -- saved state from last run
+          fugileds.restore_state(data)
+			  else
+			    print("nothing")
+			  end
     end)
 end
 
